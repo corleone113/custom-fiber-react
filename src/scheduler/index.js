@@ -16,8 +16,7 @@ import {
     patchProps
 } from '../react/utils';
 import {
-    UpdateQueue,
-    Update
+    updateQueue
 } from '../react/UpdateQueue';
 /**
  * 从根节点开始渲染和调度
@@ -36,20 +35,10 @@ export function scheduleRoot(rootFiber) {
         workInProgressRoot = currentRoot.alternate; // 指向第一次渲染时的哪个fiber链表。
         rootFiber && (workInProgressRoot.props = rootFiber.props); // 更新props
         workInProgressRoot.alternate = currentRoot;
+    } else if(currentRoot){ // 奇数次更新——双缓冲机制
+        workInProgressRoot = { ...currentRoot, alternate: currentRoot};
     } else {
-        if (!rootFiber) { // 有可能没有传rootFiber参数
-            if (currentRoot) { // 没有传入rootFiber且currentRoot存在时复用currentRoot，判断currentRoot是否存这个条件可能是多余的
-                workInProgressRoot = {
-                    ...currentRoot,
-                    alternate: currentRoot,
-                }
-            }
-        } else {
-            if (currentRoot) { // 奇数次更新——双缓冲机制
-                rootFiber.alternate = currentRoot;
-            }
-            workInProgressRoot = rootFiber;
-        }
+        workInProgressRoot = rootFiber;
     }
     workInProgressRoot.firstEffect = workInProgressRoot.lastEffect = workInProgressRoot.nextEffect = null;
     nextUnitOfWork = workInProgressRoot;
@@ -67,27 +56,27 @@ function performUnitOfWork(currentFiber) {
         currentFiber = currentFiber.return;
     }
 }
-// 在完成时候收集副作用，然后组成effect链表
+// 在完成时候收集副作用，然后按照后续遍历的顺序组成effect链表
 function completeUnitOfWork(currentFiber) {
     const returnFiber = currentFiber.return;
     if (returnFiber) {
-        if (!returnFiber.firstEffect) {
+        if (!returnFiber.firstEffect) {// 说明currentFiber是returnFiber第一个儿子，不过优先处理currentFiber儿子的副作用
             returnFiber.firstEffect = currentFiber.firstEffect;
         }
-        if (currentFiber.lastEffect) {
-            if (returnFiber.lastEffect) {
+        if (currentFiber.lastEffect) { // 说明currentFiber的儿子确实有副作用。
+            if (returnFiber.lastEffect) { // 说明currentFiber不是returnFiber第一个儿子，所以它儿子们的副作用要排到后面去
                 returnFiber.lastEffect.nextEffect = currentFiber.firstEffect;
             }
-            returnFiber.lastEffect = currentFiber.lastEffect;
+            returnFiber.lastEffect = currentFiber.lastEffect; // 将lastEffect指向正确的位置
         }
         const effectTag = currentFiber.effectTag;
-        if (effectTag) { // 自己有副作用则
-            if (returnFiber.lastEffect) {
+        if (effectTag) { // currentFiber自己有副作用则在儿子的副作用之后处理
+            if (returnFiber.lastEffect) {// 说明currentFiber不是第一个儿子，所以它的副作用要排在后面
                 returnFiber.lastEffect.nextEffect = currentFiber;
             } else {
-                returnFiber.firstEffect = currentFiber;
+                returnFiber.firstEffect = currentFiber;// 说明currentFiber是第一个儿子，且它的子Fiber没有副作用或没有子fiber。
             }
-            returnFiber.lastEffect = currentFiber;
+            returnFiber.lastEffect = currentFiber; // 将lastEffect指向正确的位置
         }
     }
 }
@@ -127,15 +116,9 @@ function createDOM(currentFiber) {
         return document.createTextNode(currentFiber.props.children);
     } else if (currentFiber.tag === TAG_HOST) {
         const stateNode = document.createElement(currentFiber.type);
-        // 将updateQueue挂载在dom节点上，方便进行合成事件的处理
-        currentFiber.updateQueue && (stateNode.updateQueue = currentFiber.updateQueue);
-        updateDOM(stateNode, {}, currentFiber.props);
+        patchProps(stateNode, {}, currentFiber.props);
         return stateNode;
     }
-}
-
-function updateDOM(stateNode, oldProps, newProps) {
-    patchProps(stateNode, oldProps, newProps);
 }
 
 function updateHostText(currentFiber) {
@@ -147,12 +130,9 @@ function updateHostText(currentFiber) {
 function updateClassComponent(currentFiber) {
     if (!currentFiber.stateNode) { // 类组件stateNode为其实例
         currentFiber.stateNode = new currentFiber.type(currentFiber.props);
-        currentFiber.stateNode.internalFiber = currentFiber;
-        currentFiber.updateQueue = new UpdateQueue();
     }
-    currentFiber.stateNode.props = currentFiber.props;
+    currentFiber.stateNode.props = currentFiber.props; // 更新props
     // 给组件实例的state赋值
-    currentFiber.stateNode.state = currentFiber.updateQueue.forceUpdate(currentFiber.stateNode.state);
     const newElement = currentFiber.stateNode.render();
     reconcileChildren(currentFiber, [newElement]);
 }
@@ -177,20 +157,20 @@ function getOldFiberMap(oldFiber) { // 生成旧Fiber链表的map
 }
 
 function reconcileChildren(currentFiber, newChildren) {
-    let newChildIndex = 0;
     let oldFiber = currentFiber.alternate && currentFiber.alternate.child;
     oldFiber && (oldFiber.firstEffect = oldFiber.lastEffect = oldFiber.nextEffect = null);
     let prevSibling;
     let newFiber;
-    currentFiber.child = null;
-    const oldFiberMap = getOldFiberMap(oldFiber);
+    currentFiber.child = null; // 清除之前的子fiber(对非初次渲染)
+    const oldFiberMap = getOldFiberMap(oldFiber); // 获取旧fiber的map
+    let newChildIndex = 0;
     let lastIndex = 0;
     while (newChildIndex < newChildren.length) {
         let tag;
         const newChild = newChildren[newChildIndex];
         const newKey = (newChild && newChild.key) || newChildIndex.toString();
         let foundFiber = oldFiberMap[newKey] || {};
-        if (foundFiber.type !== newChild.type) {
+        if (foundFiber.type !== newChild.type) { // 类型不同不会复用
             foundFiber = null;
         }
         if (newChild && newChild.$$typeof === TEXT) {
@@ -206,7 +186,8 @@ function reconcileChildren(currentFiber, newChildren) {
             if (foundFiber.alternate) { // 如果有上上次的fiber，就进行复用
                 newFiber = foundFiber.alternate;
                 newFiber.props = newChild.props;
-                newFiber.alternate = foundFiber;
+                // alternate还是指向上一个fiber，这样foundFiber和它的alternate fiber各自的alternate指向彼此
+                newFiber.alternate = foundFiber; 
                 newFiber.effectTag = UPDATE;
                 newFiber.nextEffect = null;
             } else {
@@ -217,13 +198,10 @@ function reconcileChildren(currentFiber, newChildren) {
                     props: newChild.props,
                     stateNode: foundFiber.stateNode,
                     return: currentFiber,
-                    alternate: foundFiber, // 新fiberalternate指向老fiber
+                    alternate: foundFiber, // 新fiber alternate指向老fiber
                     effectTag: UPDATE,
                     nextEffect: null, //下一个Fiber执行单元
                 };
-            }
-            if(foundFiber.updateQueue){
-                newFiber.updateQueue = foundFiber.updateQueue;
             }
             if (foundFiber._mountIndex < lastIndex) { // 小于表示需要移动，添加toIndex
                 newFiber.toIndex = newChildIndex;
@@ -246,9 +224,6 @@ function reconcileChildren(currentFiber, newChildren) {
         }
         delete oldFiberMap[newKey];
         if (newFiber) {
-            if(currentFiber.updateQueue){
-                newFiber.updateQueue = currentFiber.updateQueue;
-            }
             if (!currentFiber.child)
                 currentFiber.child = newFiber;
             else {
@@ -297,7 +272,7 @@ function commitWork(currentFiber) {
     if (!currentFiber) return;
     let returnFiber = currentFiber.return;
     while (returnFiber.tag === TAG_CLASS ||
-        returnFiber.tag === TAG_FUNCTION) { // 组件的stateNode为null,它们的子节点要挂载上父节点。
+        returnFiber.tag === TAG_FUNCTION) { // 如果父Fiber的tag为TAG_CLASS或TAG_FUNCTION，那么其stateNode就不是DOM，此时需要继续往上找到真实的父级DOM
         returnFiber = returnFiber.return;
     }
     const returnDOM = returnFiber.stateNode;
@@ -321,7 +296,7 @@ function commitWork(currentFiber) {
             if (alternate.props.children !== props.children)
                 stateNode.textContent = props.children;
         } else {
-            updateDOM(stateNode, alternate.props, props);
+            patchProps(stateNode, alternate.props, props);
         }
         if (toIndex) { // 存在toIndex表示需要移动
             returnDOM.removeChild(stateNode);
@@ -346,17 +321,15 @@ export function useReducer(reducer, initialValue) {
             [hookIndex]: nextHook
         }
     } = alternate);
-    if (nextHook) {
-        nextHook.state = nextHook.updateQueue.forceUpdate(nextHook.state);
-    } else {
+    if (!nextHook) {
         nextHook = {
             state: initialValue,
-            updateQueue: new UpdateQueue(),
         }
     }
     const dispatch = action => {
-        nextHook.updateQueue.enqueueUpdate(
-            new Update(reducer ? reducer(nextHook.state, action) : action)
+        updateQueue.enqueueUpdate(
+            typeof reducer === 'function' ? reducer(nextHook.state, action) : action,
+            null, nextHook
         )
         scheduleRoot();
     }

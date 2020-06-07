@@ -1,3 +1,4 @@
+import {updateQueue} from './UpdateQueue';
 /**
  * React中事件绑定是按照推荐方式进行的——绑定到document上
  * @param {*} dom 要绑定事件的DOM节点
@@ -17,14 +18,11 @@ function dispatchEvent(event) { // event就是原生DOM事件对象
     let {
         type,
         target,
-        target:{updateQueue}
     } = event;
     const eventType = 'on' + type;
     // 初始化syntheticEvent
     initSyntheticEvent(event);
-    if(updateQueue){ // 开始批量更新状态
-        updateQueue.setBatching(true);
-    }
+    updateQueue.isPending = true; // 开始批量更新状态
     // 模拟事件冒泡
     while (target) {
         const {
@@ -32,14 +30,12 @@ function dispatchEvent(event) { // event就是原生DOM事件对象
         } = target;
         const listener = eventStore && eventStore[eventType];
         if (listener) {
-            listener.call(target, syntheticEvent);
+            listener(syntheticEvent);
         }
         target = target.parentNode;
     }
-    if(updateQueue){ // 结束批量更新状态并进行批量更新
-        updateQueue.setBatching(false);
-        updateQueue.batchUpdate();
-    }
+    updateQueue.isPending = false; // 结束批量更新状态并进行批量更新
+    updateQueue.batchUpdate();
     for (const key in syntheticEvent) { // 冒泡结束后清空syntheticEvent的属性，之后再传递syntheticEvent都拿不到执行时的属性了。
         if (key !== 'persist') {
             syntheticEvent[key] = null;

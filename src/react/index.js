@@ -12,7 +12,7 @@ import {
 import {
     ReactElement,
 } from './ReactElement';
-import {Update, UpdateQueue} from './UpdateQueue';
+import {updateQueue,} from './UpdateQueue';
 import {scheduleRoot} from '../scheduler';
 
 function createElement(type, config = {}, ...children) {
@@ -58,11 +58,12 @@ class Component {
     constructor(props = {}, context) {
         this.props = props;
         this.context = context;
-        this.updateQueue = new UpdateQueue();
     }
-    setState(payload,callback) {
-        const update = new Update(payload);
-        this.internalFiber.updateQueue.enqueueUpdate(update, callback, this);
+    setState(updater,callback) {
+        if(typeof updater !== 'object' && typeof updater !== 'function') {
+            throw new Error('Expected updater passed to setState is a object or function.');
+        }
+        updateQueue.enqueueUpdate(updater, callback, this);
         scheduleRoot();
     }
 }

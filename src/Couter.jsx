@@ -1,4 +1,3 @@
-// import React, { Component, useReducer, useState,} from 'react';
 import React, { Component, useReducer, useState, } from './react';
 function reducer(state, action) {
     switch (action.type) {
@@ -13,6 +12,21 @@ function reducer(state, action) {
 function FunctionCounter(props) {
     const [count, dispatch] = useReducer(reducer, { count: 0 });
     const [count1, setCount] = useState(0);
+    const add = () => {
+        setCount(count1 + 1);
+        console.log('>>>>', count1);
+        setCount(count1 => count1 + 1);
+        // this.setCount(count1 + 1);
+        console.log('>>>>', count1);
+        setTimeout(() => {
+            setCount(count1 => count1 + 1);
+            console.log('>>>>', count1);
+        });
+        setTimeout(() => {
+            setCount(count1 => count1 + 1);
+            console.log('>>>>', count1, this);
+        })
+    }
     return (
         <div counter={`counter${props.number}`}>
             <span>FunctionCounter number from Couter:{props.number}</span>
@@ -25,7 +39,7 @@ function FunctionCounter(props) {
             </div>
             <div>
                 <span>self state count: {count1}</span>
-                <button onClick={() => setCount(count1 + 1)}>add state count</button>
+                <button onClick={add}>add state count</button>
                 <button onClick={() => setCount(count1 - 1)}>sub state count</button>
             </div>
         </div>
@@ -71,8 +85,8 @@ export default class Counter extends Component {
     state = { number: 0 };
     add = () => {
         this.setState({ number: this.state.number + 1 });
-        console.log('>>>>', this.state);
-        this.setState({ number: this.state.number + 1 }, ()=>console.log('#############', this.state));
+        console.log('>>>>', this.state, this);
+        this.setState(state => ({ number: state.number + 1 }), () => console.log('#############', this.state));
         // this.setState(state => ({number: state.number+1}));
         console.log('>>>>', this.state);
         setTimeout(() => {
@@ -85,7 +99,6 @@ export default class Counter extends Component {
         })
     }
     sub = () => {
-        // debugger;
         this.setState({ number: this.state.number - 1 })
     }
     render() {
@@ -97,9 +110,6 @@ export default class Counter extends Component {
                 <FunctionCounter number={this.state.number} add={this.add} sub={this.sub} />
                 <ClassCounter number={this.state.number} add={this.add} sub={this.sub} />
             </div>
-            // <div id={`counter${this.state.number}`}>
-            //     <FunctionCounter number={this.state.number} add={this.add} sub={this.sub} />
-            // </div>
         )
     }
 }
