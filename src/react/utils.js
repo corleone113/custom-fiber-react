@@ -2,7 +2,7 @@ import {
     addEvent
 } from './event';
 
-function setProp(dom, key, value) {
+function setProp(dom, key, value) { // 新增/更新attribute
     if (/^on/.test(key)) {
         addEvent(dom, key, value);
     } else if (key === 'style') {
@@ -13,7 +13,7 @@ function setProp(dom, key, value) {
         dom.setAttribute(key, value);
     }
 }
-export function flatten(array) {
+export function flatten(array) { // 展开多级数组。
     const flattened = [];
     (function flat(array) {
         array.forEach(item => {
@@ -30,21 +30,21 @@ export function flatten(array) {
 export function patchProps(dom, oldProps, newProps) {
     for (const key in oldProps) {
         if (key !== 'children') {
-            if (oldProps.hasOwnProperty(key) && !newProps.hasOwnProperty(key)) { // 删除新节点移除的属性
+            if (!newProps.hasOwnProperty(key)) { // 删除新节点移除的属性
                 dom.removeAttribute(key);
             }
         }
     }
     for (const key in newProps) {
         if (key !== 'children') {
-            if (oldProps[key] !== newProps[key]) { // 更新有变化或新增的属性
+            if (oldProps[key] !== newProps[key]) { // 更新属性或新增属性
                 setProp(dom, key, newProps[key]);
             }
         }
     }
 }
 export const listenerToUpdater = new WeakMap();
-export function fillUpdaterMap(updaters, props) { // 创建事件监听器到updater的映射表(这里使用WeakMap，不用担心内存泄漏)，方便在合成事件中进行批量更新(state)
+export function fillUpdaterMap(updaters, props) { // 创建事件监听器到updater数组的映射表(这里使用WeakMap，不用担心内存泄漏)，方便在合成事件中进行批量更新(state)
     for (const key in props) {
         if (/^on/.test(key)) { // 'on'开头表示为事件监听器prop
             listenerToUpdater.set(props[key], updaters);
