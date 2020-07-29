@@ -13,11 +13,12 @@ import {
     FUNCTION_COMPONENT,
 } from '../react/constants';
 import {
-    patchProps
+    patchProps,
+    fillUpdaterMap,
 } from '../react/utils';
 import {
-    updateQueue
-} from '../react/UpdateQueue';
+    Updater
+} from '../react/updater';
 /**
  * 从根节点开始渲染和调度
  * 分为两个阶段：
@@ -35,8 +36,11 @@ export function scheduleRoot(rootFiber) {
         workInProgressRoot = currentRoot.alternate; // 指向第一次渲染时的哪个fiber链表。
         rootFiber && (workInProgressRoot.props = rootFiber.props); // 更新props
         workInProgressRoot.alternate = currentRoot;
-    } else if(currentRoot){ // 奇数次更新——双缓冲机制
-        workInProgressRoot = { ...currentRoot, alternate: currentRoot};
+    } else if (currentRoot) { // 奇数次更新——双缓冲机制
+        workInProgressRoot = {
+            ...currentRoot,
+            alternate: currentRoot
+        };
     } else {
         workInProgressRoot = rootFiber;
     }
@@ -60,7 +64,7 @@ function performUnitOfWork(currentFiber) {
 function completeUnitOfWork(currentFiber) {
     const returnFiber = currentFiber.return;
     if (returnFiber) {
-        if (!returnFiber.firstEffect) {// 说明currentFiber是returnFiber第一个儿子，不过优先处理currentFiber儿子的副作用
+        if (!returnFiber.firstEffect) { // 说明currentFiber是returnFiber第一个儿子，不过优先处理currentFiber儿子的副作用
             returnFiber.firstEffect = currentFiber.firstEffect;
         }
         if (currentFiber.lastEffect) { // 说明currentFiber的儿子确实有副作用。
@@ -71,10 +75,10 @@ function completeUnitOfWork(currentFiber) {
         }
         const effectTag = currentFiber.effectTag;
         if (effectTag) { // currentFiber自己有副作用则在儿子的副作用之后处理
-            if (returnFiber.lastEffect) {// 说明currentFiber不是第一个儿子，所以它的副作用要排在后面
+            if (returnFiber.lastEffect) { // 说明currentFiber不是第一个儿子，所以它的副作用要排在后面
                 returnFiber.lastEffect.nextEffect = currentFiber;
             } else {
-                returnFiber.firstEffect = currentFiber;// 说明currentFiber是第一个儿子，且它的子Fiber没有副作用或没有子fiber。
+                returnFiber.firstEffect = currentFiber; // 说明currentFiber是第一个儿子，且它的子Fiber没有副作用或没有子fiber。
             }
             returnFiber.lastEffect = currentFiber; // 将lastEffect指向正确的位置
         }
@@ -99,6 +103,7 @@ function updateFunctionComponent(currentFiber) {
     workInProgressFunction = currentFiber;
     hookIndex = 0;
     workInProgressFunction.hooks = [];
+    workInProgressFunction.hookUpdaters = [];
     const newElement = currentFiber.type(currentFiber.props);
     reconcileChildren(currentFiber, [newElement]);
 }
@@ -129,7 +134,11 @@ function updateHostText(currentFiber) {
 
 function updateClassComponent(currentFiber) {
     if (!currentFiber.stateNode) { // 类组件stateNode为其实例
-        currentFiber.stateNode = new currentFiber.type(currentFiber.props);
+        const instance = new currentFiber.type(currentFiber.props);
+        currentFiber.updater = instance.updater;
+        if (currentFiber.updaters) currentFiber.updaters.push(instance.updater);
+        else currentFiber.updaters = [instance.updater];
+        currentFiber.stateNode = instance;
     }
     currentFiber.stateNode.props = currentFiber.props; // 更新props
     // 给组件实例的state赋值
@@ -157,6 +166,9 @@ function getOldFiberMap(oldFiber) { // 生成旧Fiber链表的map
 }
 
 function reconcileChildren(currentFiber, newChildren) {
+    const {
+        updaters,
+    } = currentFiber;
     let oldFiber = currentFiber.alternate && currentFiber.alternate.child;
     oldFiber && (oldFiber.firstEffect = oldFiber.lastEffect = oldFiber.nextEffect = null);
     let prevSibling;
@@ -168,6 +180,7 @@ function reconcileChildren(currentFiber, newChildren) {
     while (newChildIndex < newChildren.length) {
         let tag;
         const newChild = newChildren[newChildIndex];
+        updaters && fillUpdaterMap(updaters, newChild.props);
         const newKey = (newChild && newChild.key) || newChildIndex.toString();
         let foundFiber = oldFiberMap[newKey] || {};
         if (foundFiber.type !== newChild.type) { // 类型不同不会复用
@@ -187,7 +200,7 @@ function reconcileChildren(currentFiber, newChildren) {
                 newFiber = foundFiber.alternate;
                 newFiber.props = newChild.props;
                 // alternate还是指向上一个fiber，这样foundFiber和它的alternate fiber各自的alternate指向彼此
-                newFiber.alternate = foundFiber; 
+                newFiber.alternate = foundFiber;
                 newFiber.effectTag = UPDATE;
                 newFiber.nextEffect = null;
             } else {
@@ -202,6 +215,8 @@ function reconcileChildren(currentFiber, newChildren) {
                     effectTag: UPDATE,
                     nextEffect: null, //下一个Fiber执行单元
                 };
+                foundFiber.updater && (newFiber.updater = foundFiber.updater);
+                foundFiber.updaters && (newFiber.updaters = foundFiber.updaters);
             }
             if (foundFiber._mountIndex < lastIndex) { // 小于表示需要移动，添加toIndex
                 newFiber.toIndex = newChildIndex;
@@ -221,6 +236,7 @@ function reconcileChildren(currentFiber, newChildren) {
                 effectTag: PLACEMENT,
                 nextEffect: null, //下一个Fiber执行单元
             };
+            updaters && (newFiber.updaters = updaters.slice());
         }
         delete oldFiberMap[newKey];
         if (newFiber) {
@@ -288,7 +304,7 @@ function commitWork(currentFiber) {
         props,
     } = currentFiber;
     if (effectTag === PLACEMENT) {
-        returnDOM.appendChild(stateNode);
+        stateNode && returnDOM.appendChild(stateNode);
     } else if (effectTag === DELETE) {
         returnDOM.removeChild(stateNode);
     } else if (effectTag === UPDATE) {
@@ -312,13 +328,17 @@ function insertChildAt(parentNode, childDOM, toIndex) {
 }
 
 export function useReducer(reducer, initialValue) {
-    let nextHook;
+    let nextHook, nextUpdater;
     const {
-        alternate
+        alternate,
+        updaters,
     } = workInProgressFunction;
     alternate && ({
         hooks: {
             [hookIndex]: nextHook
+        },
+        hookUpdaters: {
+            [hookIndex]: nextUpdater,
         }
     } = alternate);
     if (!nextHook) {
@@ -326,14 +346,18 @@ export function useReducer(reducer, initialValue) {
             state: initialValue,
         }
     }
+    if(!nextUpdater){
+        nextUpdater = new Updater(nextHook);
+        if(updaters) updaters.push(nextUpdater);
+        else workInProgressFunction.updaters = [nextUpdater];
+    }
     const dispatch = action => {
-        updateQueue.enqueueUpdate(
-            typeof reducer === 'function' ? reducer(nextHook.state, action) : action,
-            null, nextHook
-        )
+        nextUpdater.addState(typeof reducer === 'function' ? reducer(nextHook.state, action) : action, );
         scheduleRoot();
     }
-    workInProgressFunction.hooks[hookIndex++] = nextHook;
+    workInProgressFunction.hooks[hookIndex] = nextHook;
+    workInProgressFunction.hookUpdaters[hookIndex] = nextUpdater;
+    ++hookIndex;
     return [nextHook.state, dispatch];
 }
 export function useState(initialValue) {

@@ -12,8 +12,8 @@ import {
 import {
     ReactElement,
 } from './ReactElement';
-import {updateQueue,} from './UpdateQueue';
 import {scheduleRoot} from '../scheduler';
+import {Updater} from './updater';
 
 function createElement(type, config = {}, ...children) {
     let key, ref, props = {};
@@ -58,12 +58,13 @@ class Component {
     constructor(props = {}, context) {
         this.props = props;
         this.context = context;
+        this.updater = new Updater(this);
     }
-    setState(updater,callback) {
-        if(typeof updater !== 'object' && typeof updater !== 'function') {
+    setState(partialState,callback) {
+        if(typeof partialState !== 'object' && typeof partialState !== 'function') {
             throw new Error('Expected updater passed to setState is a object or function.');
         }
-        updateQueue.enqueueUpdate(updater, callback, this);
+        this.updater.addState(partialState, callback);
         scheduleRoot();
     }
 }
