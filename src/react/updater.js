@@ -4,9 +4,12 @@ const updateQueue = {
         this.updaters.push(updater);
     },
     batchUpdate() {
+        for(const updater of this.updaters){
+            updater.updateCompOrHook();
+        }
         let updater;
         while ((updater = this.updaters.pop())) { // 批量更新组件
-            updater.updateCompOrHook();
+            updater.executeCallbacks();
         }
     }
 }
@@ -29,6 +32,10 @@ export class Updater {
             updateQueue.add(this); // 处于批量更新状态则将当前updater添加到updateQueue中，稍后更新。
         }
     }
+    executeCallbacks(){
+        this.callbacks.forEach(cb => cb()); // 遍历执行传入setState的回调
+        this.callbacks.length = 0; // 重置回调数组
+    }
     updateCompOrHook() {
         const {
             pendingStates,
@@ -46,8 +53,6 @@ export class Updater {
             }:nextState // hook state有可能时非对象。
         }
         this.pendingStates.length = 0; // 重置state更新器数组
-        this.callbacks.forEach(cb => cb()); // 遍历执行传入setState的回调
-        this.callbacks.length = 0; // 重置回调数组
     }
 }
 export function batchingInject(updaters, fn) { // 劫持需要批量更新的函数，函数执行完进行批量更新(state)，并返回函数执行结果

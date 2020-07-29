@@ -14,7 +14,7 @@ import {
 } from '../react/constants';
 import {
     patchProps,
-    fillUpdaterMap,
+    injectListener,
     flatten,
 } from '../react/utils';
 import {
@@ -180,7 +180,7 @@ function reconcileChildren(currentFiber, newChildren) { // 遍历子React元素�
     while (newChildIndex < newChildren.length) { // 遍历children
         let tag;
         const newChild = newChildren[newChildIndex]; // 当前遍历的子节点
-        updaters && fillUpdaterMap(updaters, newChild.props); // 填充事件监听器到updaters的映射表(用的WeakMap)
+        updaters && injectListener(updaters, newChild.props); // 填充事件监听器到updaters的映射表(用的WeakMap)
         const newKey = (newChild && newChild.key) || newChildIndex.toString(); // 优先使用React元素上的key prop，非React元素或不含key prop则使用数字索引
         let foundFiber = oldFiberMap[newKey] || {}; // 查找可复用的旧子fiber
         if (foundFiber.type !== newChild.type) { // 类型不同不会复用
