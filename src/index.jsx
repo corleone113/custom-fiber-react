@@ -1,6 +1,6 @@
 import React from './react';
 import ReactDOM from './react-dom';
-import Counter from './Couter';
+import Counter from './Counter';
 
 const style = { border: '3px solid indianred', margin: '5px', }
 const element = (
