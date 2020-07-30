@@ -4,7 +4,7 @@ import {
     CLASS_COMPONENT,
     FUNCTION_COMPONENT,
 } from './constants';
-import {useReducer, useState} from '../scheduler'
+import {useReducer, useState} from '../fiber'
 
 import {
     flatten
@@ -12,7 +12,7 @@ import {
 import {
     ReactElement,
 } from './ReactElement';
-import {scheduleRoot} from '../scheduler';
+import {scheduleRoot} from '../fiber';
 import {Updater} from './updater';
 
 function createElement(type, config = {}, ...children) {

@@ -1,5 +1,5 @@
 import {TAG_ROOT} from '../react/constants';
-import {scheduleRoot} from '../scheduler';
+import {scheduleRoot} from '../fiber';
 function render(element, container){
     const rootFiber = {
         tag: TAG_ROOT, // 每个fiber都有一个tag标识此元素的类型
