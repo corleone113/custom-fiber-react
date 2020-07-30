@@ -1,6 +1,6 @@
 import React from './react';
 import ReactDOM from './react-dom';
-import Counter from './Counter';
+import Counter from './Counter1';
 
 const style = { border: '3px solid indianred', margin: '5px', }
 const element = (
@@ -13,7 +13,7 @@ const element = (
     </div>
     <div id='B2' style={style}>B2</div>
   </div>);
-ReactDOM.render(<Counter />,
+ReactDOM.render(<Counter key="counterkkk"/>,
   document.getElementById('root')
 );
 

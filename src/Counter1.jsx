@@ -63,14 +63,22 @@ export default class extends Component {
     sub = () => this.setState({ number: this.state.number - 1 })
     render() {
         return (
-            <div id={`counter${this.state.number}`}>
-                <p>number: {this.state.number}</p>
-                <p>some: {this.state.some}</p>
-                <button onClick={this.add}>+</button>
-                <button onClick={this.sub}>-</button>
-                <FunctionCounter number={this.state.number} add={this.add} sub={this.sub} />
-                <ClassCounter number={this.state.number} add={this.add} sub={this.sub} />
-            </div>
+            // <div id={`counter${this.state.number}`}>
+            //     <p>number: {this.state.number}</p>
+            //     <p>some: {this.state.some}</p>
+            //     <button onClick={this.add}>+</button>
+            //     <button onClick={this.sub}>-</button>
+            //     <FunctionCounter number={this.state.number} add={this.add} sub={this.sub} />
+            //     <ClassCounter number={this.state.number} add={this.add} sub={this.sub} />
+            // </div>
+            [
+                <p key='p1'>number: {this.state.number}</p>,
+                <p key='p2'>some: {this.state.some}</p>,
+                <button key='button1' onClick={this.add}>+</button>,
+                <button key='button2' onClick={this.sub}>-</button>,
+                <FunctionCounter key='function1' number={this.state.number} add={this.add} sub={this.sub} />,
+                <ClassCounter key='class1' number={this.state.number} add={this.add} sub={this.sub} />,
+            ]
         )
     }
 }
