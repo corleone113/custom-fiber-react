@@ -292,8 +292,13 @@ function commitWork(currentFiber) {
     }
     const returnDOM = returnFiber.stateNode;
     if (currentFiber.tag === TAG_CLASS ||
-        currentFiber.tag === TAG_FUNCTION) // commitWork用于处理DOM副作用，如果当前是组件fiber，则不处理
+        currentFiber.tag === TAG_FUNCTION) { // commitWork用于处理DOM副作用，如果当前是组件fiber，则不处理
+        if(currentFiber.effectTag === DELETE){ // 通过删除子节点来删除组件fiber
+            currentFiber.lastEffect.effectTag = DELETE;
+            commitWork(currentFiber.lastEffect);
+        }
         return;
+    }
     const {
         stateNode, // fiber对应的DOM节点
         toIndex, // DOM节点移动的位置索引
@@ -345,9 +350,9 @@ export function useReducer(reducer, initialValue) {
             state: initialValue,
         }
     }
-    if(!nextUpdater){ // 不存在则进行初始化
+    if (!nextUpdater) { // 不存在则进行初始化
         nextUpdater = new Updater(nextHook);
-        if(updaters) updaters.push(nextUpdater); // updaters存在则将当前updater放在其末尾。
+        if (updaters) updaters.push(nextUpdater); // updaters存在则将当前updater放在其末尾。
         else workInProgressFunction.updaters = [nextUpdater]; // updaters不存在也进行初始化
     }
     const dispatch = action => {
