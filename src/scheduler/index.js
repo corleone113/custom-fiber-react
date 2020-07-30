@@ -23,7 +23,7 @@ import {
 /**
  * 从根节点开始渲染和调度
  * 分为两个阶段：
- *  1. reconcile阶段——这个阶段比较费时间，所以将任务拆分为多步，这个阶段用于初始化/更新Fiber(执行顺序为先序遍历)，然后收集副作用(执行过程是后续遍历)并生成fiber树(实际是链表)，这个阶段是可以中断的。
+ *  1. reconcile阶段——这个阶段比较费时间，所以将任务拆分为多步，这个阶段用于初始化/更新Fiber(执行顺序为先序遍历，这个过程中fiber树形成一个特殊的链表)，然后收集副作用(执行过程是后续遍历，且形成另一个链表)，这个阶段是可以中断的。
  *  2. 提交阶段，这个阶段是同步完成的，类似于回调，且不能中断，依次执行收集的副作用(树形结构，实际是链表，后续遍历)。
  */
 let nextUnitOfWork = null; // 下一个fiber执行单元
@@ -49,23 +49,23 @@ export function scheduleRoot(rootFiber) {
     nextUnitOfWork = workInProgressRoot; // nextUnitOfWork代表当前fiber任务，它被轮询地(workLoop中)监控，只要不要null就会启动fiber任务。
 }
 
-function performUnitOfWork(currentFiber) { // 执行每个fiber任务，也是构建fiber树的过程，先序遍历
-    beginWork(currentFiber); // 先遍历父级/根 fiber
-    if (currentFiber.child) { // 然后遍历第一个子fiber，遍历儿子时是从左到右进行的，child保存第一个子fiber，因为fiber实际的数据结构为链表
+function performUnitOfWork(currentFiber) { // 执行每个fiber任务，也是基于fiber树构建fiber链表的过程，先序遍历
+    beginWork(currentFiber); // 先构建/更新父级/根 fiber
+    if (currentFiber.child) { // 然后构建/更新第一个子fiber，构建/更新儿子时是从左到右进行的，child保存第一个子fiber，因为fiber实际的数据结构为链表
         return currentFiber.child;
     }
     while (currentFiber) { // 当前fiber不为null/undefined才继续
-        completeUnitOfWork(currentFiber); // 遍历到嵌套层次最深的第一个子fiber就开始收集副作用(收集副作用是先序遍历)，副作用对象也是树形结构(数据结构为链表)
-        if (currentFiber.sibling) // 继续遍历剩余的子fiber
+        completeUnitOfWork(currentFiber); // 遍历到嵌套层次最深的第一个子fiber就开始收集副作用(收集副作用是后序遍历)，副作用是基于fiber树形成的另一个链表(每个节点还是fiber)
+        if (currentFiber.sibling) // 继续构建/更新剩余的子fiber
             return currentFiber.sibling;
-        currentFiber = currentFiber.return; // 遍历完所有子fiber则返回父级fiber
+        currentFiber = currentFiber.return; // 构建/更新完所有子fiber则返回父级fiber
     }
 }
 
-function completeUnitOfWork(currentFiber) { // 按照先序遍历的顺序遍历fiber收集effect(副作用)，构建(不存在更新，每次都要重新构建)出一个effect树(数据结构为链表)
+function completeUnitOfWork(currentFiber) { // 按照后续遍历的顺序遍历fiber收集effect(副作用)，构建(不存在更新，每次都要重新构建)出一个effect树(数据结构为链表)
     const returnFiber = currentFiber.return;
     if (returnFiber) { // 存在父级fiber才开始构建
-        if (!returnFiber.firstEffect) { // 说明currentFiber是returnFiber第一个儿子，不过因为是先序遍历所以优先处理currentFiber儿子的副作用
+        if (!returnFiber.firstEffect) { // 说明currentFiber是returnFiber第一个儿子，不过因为是后序遍历所以优先处理currentFiber儿子的副作用
             returnFiber.firstEffect = currentFiber.firstEffect;
         }
         if (currentFiber.lastEffect) { // 说明currentFiber的儿子确实有副作用——lastEffect存在则firstEffect一定存在。因为lastEffect总是要指向最后一个有效的effect上，所以这里需要进行判断。
@@ -77,7 +77,7 @@ function completeUnitOfWork(currentFiber) { // 按照先序遍历的顺序遍历
         const effectTag = currentFiber.effectTag;
         if (effectTag) { // currentFiber自己有副作用则在儿子的副作用之后处理
             if (returnFiber.lastEffect) { // 说明currentFiber不是第一个儿子，所以它的副作用要排在后面
-                returnFiber.lastEffect.nextEffect = currentFiber;
+                returnFiber.lastEffect.nextEffect = currentFiber; // 副作用仍然是fiber节点
             } else {
                 returnFiber.firstEffect = currentFiber; // 说明currentFiber是第一个儿子，且它的子Fiber没有副作用或没有子fiber。
             }
@@ -293,7 +293,7 @@ function commitWork(currentFiber) {
     const returnDOM = returnFiber.stateNode;
     if (currentFiber.tag === TAG_CLASS ||
         currentFiber.tag === TAG_FUNCTION) { // commitWork用于处理DOM副作用，如果当前是组件fiber，则不处理
-        if(currentFiber.effectTag === DELETE){ // 通过删除子节点来删除组件fiber
+        if(currentFiber.effectTag === DELETE){ // 通过删除子节点来删除组件fiber对应的React元素
             currentFiber.lastEffect.effectTag = DELETE;
             commitWork(currentFiber.lastEffect);
         }
