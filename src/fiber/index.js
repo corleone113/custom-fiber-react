@@ -24,11 +24,11 @@ import {
  * 从根节点开始渲染和调度
  * 分为两个阶段：
  *  1. reconcile阶段——这个阶段比较费时间，所以将任务拆分为多步，这个阶段用于初始化/更新Fiber(执行顺序为先序遍历，这个过程中fiber树形成一个特殊的链表)，然后收集副作用(执行过程是后续遍历，且形成另一个链表)，这个阶段是可以中断的。
- *  2. 提交阶段，这个阶段是同步完成的，类似于回调，且不能中断，依次执行收集的副作用(树形结构，实际是链表，后续遍历)。
+ *  2. 提交阶段，依次执行收集的副作用(树形结构，实际是链表，后续遍历)，这个阶段是同步完成的且不能中断。
  */
-let nextUnitOfWork = null; // 下一个fiber执行单元
+let nextUnitOfWork = null; // fiber执行单元
 let workInProgressRoot = null; // 正在渲染的根fiber
-let currentRoot = null; // 渲染成功后的根fiber——上一次渲染的根fiber的缓存，实现双缓冲机制
+let currentRoot = null; // 渲染成功后的根fiber——上一次渲染的根fiber的缓存，用于实现双缓冲机制
 const deletions = []; // 进行节点删除的fiber并不放在fiber链表中，而是需要单独记录并执行
 let workInProgressFunction = null; // 正在工作的函数组件Fiber
 let hookIndex = 0; // hook检索的索引
@@ -55,14 +55,14 @@ function performUnitOfWork(currentFiber) { // 执行每个fiber任务，也是�
         return currentFiber.child;
     }
     while (currentFiber) { // 当前fiber不为null/undefined才继续
-        completeUnitOfWork(currentFiber); // 遍历到嵌套层次最深的第一个子fiber就开始收集副作用(收集副作用是后序遍历)，副作用是基于fiber树形成的另一个链表(每个节点还是fiber)
+        completeUnitOfWork(currentFiber); // 遍历到第一个没有child的fiber就开始收集副作用(收集副作用是后序遍历)，副作用是基于fiber树形成的另一个链表(每个节点还是fiber)
         if (currentFiber.sibling) // 继续构建/更新剩余的子fiber
             return currentFiber.sibling;
         currentFiber = currentFiber.return; // 构建/更新完所有子fiber则返回父级fiber
     }
 }
 
-function completeUnitOfWork(currentFiber) { // 按照后续遍历的顺序遍历fiber收集effect(副作用)，构建(不存在更新，每次都要重新构建)出一个effect树(数据结构为链表)
+function completeUnitOfWork(currentFiber) { // 按照后续遍历的顺序遍历fiber收集effect(副作用)，构建(不存在更新，每次都要重新构建)出一个effect单链表。
     const returnFiber = currentFiber.return;
     if (returnFiber) { // 存在父级fiber才开始构建
         if (!returnFiber.firstEffect) { // 说明currentFiber是returnFiber第一个儿子，不过因为是后序遍历所以优先处理currentFiber儿子的副作用
@@ -74,12 +74,11 @@ function completeUnitOfWork(currentFiber) { // 按照后续遍历的顺序遍历
             }
             returnFiber.lastEffect = currentFiber.lastEffect; // 将lastEffect指向正确的位置——指向currentFiber最后一个子/孙fiber的副作用
         }
-        const effectTag = currentFiber.effectTag;
-        if (effectTag) { // currentFiber自己有副作用则在儿子的副作用之后处理
+        if (currentFiber.effectTag) { // currentFiber自己有副作用则在儿子的副作用之后处理
             if (returnFiber.lastEffect) { // 说明currentFiber不是第一个儿子，所以它的副作用要排在后面
                 returnFiber.lastEffect.nextEffect = currentFiber; // 副作用仍然是fiber节点
             } else {
-                returnFiber.firstEffect = currentFiber; // 说明currentFiber是第一个儿子，且它的子Fiber没有副作用或没有子fiber。
+                returnFiber.firstEffect = currentFiber; // 说明currentFiber是第一个儿子。
             }
             returnFiber.lastEffect = currentFiber; // 将lastEffect指向正确的位置
         }
@@ -141,7 +140,7 @@ function updateClassComponent(currentFiber) {
         else currentFiber.updaters = [instance.updater]; // 否则创建新的updaters
         currentFiber.stateNode = instance;
     }
-    currentFiber.stateNode.props = currentFiber.props; // 更新组件实例的props(props从React元素传递到fiber到传到组件实例中)
+    currentFiber.stateNode.props = currentFiber.props; // 更新组件实例的props(props从React元素传递到fiber然后再传到组件实例中)
     // 给组件实例的state赋值
     const newElement = currentFiber.stateNode.render(); // 重新渲染
     reconcileChildren(currentFiber, flatten([newElement]));
@@ -167,7 +166,7 @@ function getOldFiberMap(oldFiber) { // 生成旧子Fiber的map，key到fiber的�
 
 function reconcileChildren(currentFiber, newChildren) { // 遍历子React元素数组来构建/更新子fiber
     const {
-        updaters, // updaters保存当前fiber的updater(和类组件实例或hook对应)
+        updaters, // updaters(和类组件实例或hook对应)保存当前fiber关联的所有updater
     } = currentFiber;
     let oldFiber = currentFiber.alternate && currentFiber.alternate.child; // 尝试获取旧的第一个子fiber
     oldFiber && (oldFiber.firstEffect = oldFiber.lastEffect = oldFiber.nextEffect = null); // 重置副作用
@@ -180,7 +179,7 @@ function reconcileChildren(currentFiber, newChildren) { // 遍历子React元素�
     while (newChildIndex < newChildren.length) { // 遍历children
         let tag;
         const newChild = newChildren[newChildIndex]; // 当前遍历的子节点
-        updaters && injectListener(updaters, newChild.props); // 填充事件监听器到updaters的映射表(用的WeakMap)
+        updaters && injectListener(updaters, newChild.props); // 劫持事件监听器，让其可以批量延迟更新state。
         const newKey = (newChild && newChild.key) || newChildIndex.toString(); // 优先使用React元素上的key prop，非React元素或不含key prop则使用数字索引
         let foundFiber = oldFiberMap[newKey] || {}; // 查找可复用的旧子fiber
         if (foundFiber.type !== newChild.type) { // 类型不同不会复用
@@ -202,9 +201,9 @@ function reconcileChildren(currentFiber, newChildren) { // 遍历子React元素�
                 // alternate还是指向上一个fiber，这样foundFiber和它的alternate fiber各自的alternate指向彼此
                 newFiber.alternate = foundFiber; // 保存当前缓存的fiber
                 newFiber.effectTag = UPDATE; // 副作用类型为更新(包含移动)
-                newFiber.nextEffect = null; // 重置effect
+                newFiber.nextEffect = null; // 重置下一个副作用
             } else { // 第二次渲染才找得到可复用的fiber
-                newFiber = { // 第二次渲染也需要生成新的fiber(作为该fiber的第二个缓存)
+                newFiber = { // 第二次渲染也需要生成一个复制的fiber(作为该fiber的第二个缓存)
                     tag: foundFiber.tag,
                     type: foundFiber.type,
                     key: foundFiber.key,
@@ -213,7 +212,7 @@ function reconcileChildren(currentFiber, newChildren) { // 遍历子React元素�
                     return: currentFiber, // 父级fiber
                     alternate: foundFiber, // 新fiber alternate指向老fiber
                     effectTag: UPDATE, // 副作用类型为更新
-                    nextEffect: null, //下一个副作用
+                    nextEffect: null, // 重置下一个副作用
                 };
                 foundFiber.updater && (newFiber.updater = foundFiber.updater); // 复用updater
                 foundFiber.updaters && (newFiber.updaters = foundFiber.updaters); // 复用updaters
@@ -319,8 +318,8 @@ function commitWork(currentFiber) {
             patchProps(stateNode, alternate.props, props);
         }
         if (toIndex) { // 存在toIndex表示需要移动
-            returnDOM.removeChild(stateNode);
-            insertChildAt(returnDOM, stateNode, toIndex);
+            returnDOM.removeChild(stateNode); // 先删除
+            insertChildAt(returnDOM, stateNode, toIndex); // 再插入到新位置
         }
     }
     currentFiber.effectTag = null;

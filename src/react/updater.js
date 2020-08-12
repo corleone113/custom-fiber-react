@@ -25,7 +25,7 @@ export class Updater {
         typeof callback === 'function' && this.callbacks.push(callback);
         this.emitUpdate();
     }
-    emitUpdate(nextProps) {
+    emitUpdate() {
         if (!this.batching) { // 非批量更新状态则直接更新state
             this.updateCompOrHook();
         } else {
