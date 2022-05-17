@@ -2,9 +2,11 @@ import React, { Component } from './react';
 function FunctionCounter(props) {
     return (
         <div counter={`counter${props.number}`}>
-            <p>{props.number}</p>
+            <hr />
+            <p>func: {props.number}</p>
             <button onClick={props.add}>+</button>
             <button onClick={props.sub}>-</button>
+            <hr />
         </div>
     )
 }

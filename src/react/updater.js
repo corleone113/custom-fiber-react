@@ -28,6 +28,7 @@ export class Updater {
     emitUpdate() {
         if (!this.batching) { // 非批量更新状态则直接更新state
             this.updateCompOrHook();
+            this.executeCallbacks();
         } else {
             updateQueue.add(this); // 处于批量更新状态则将当前updater添加到updateQueue中，稍后更新。
         }

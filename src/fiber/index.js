@@ -26,8 +26,8 @@ import {
  *  1. reconcile阶段——这个阶段比较费时间，所以将任务拆分为多步，这个阶段用于初始化/更新Fiber(执行顺序为先序遍历，这个过程中fiber树形成一个特殊的链表)，然后收集副作用(执行过程是后续遍历，且形成另一个链表)，这个阶段是可以中断的。
  *  2. 提交阶段，依次执行收集的副作用(树形结构，实际是链表，后续遍历)，这个阶段是同步完成的且不能中断。
  */
-let nextUnitOfWork = null; // fiber执行单元
-let workInProgressRoot = null; // 正在渲染的根fiber
+let nextUnitOfWork = null; // 当前fiber执行单元(fiber节点)
+let workInProgressRoot = null; // 正在渲染的根fiber(也是fiber节点)
 let currentRoot = null; // 渲染成功后的根fiber——上一次渲染的根fiber的缓存，用于实现双缓冲机制
 const deletions = []; // 进行节点删除的fiber并不放在fiber链表中，而是需要单独记录并执行
 let workInProgressFunction = null; // 正在工作的函数组件Fiber
@@ -35,7 +35,6 @@ let hookIndex = 0; // hook检索的索引
 export function scheduleRoot(rootFiber) {
     if (currentRoot && currentRoot.alternate) { // 第三次以后(包括第三次)都是复用之前缓存的fiber，奇数次复用第一个缓存的根fiber；而偶数次复用第二个缓存的根fiber。
         workInProgressRoot = currentRoot.alternate; // 通过alternate引用一个缓存的根fiber
-        rootFiber && (workInProgressRoot.props = rootFiber.props); // 更新props
         workInProgressRoot.alternate = currentRoot; // 也是通过alternate缓存另一个根fiber
     } else if (currentRoot) { // 第二次执行。生成第二个缓存的根fiber
         workInProgressRoot = {
@@ -45,6 +44,7 @@ export function scheduleRoot(rootFiber) {
     } else { // 首次执行。生成第一个缓存的根fiber
         workInProgressRoot = rootFiber;
     }
+    rootFiber && (workInProgressRoot.props = rootFiber.props); // 更新根fiber props(主要是第一次之后的执行更新fiber props,对于第一次执行而言是冗余操作)
     workInProgressRoot.firstEffect = workInProgressRoot.lastEffect = workInProgressRoot.nextEffect = null; // 重置Effect
     nextUnitOfWork = workInProgressRoot; // nextUnitOfWork代表当前fiber任务，它被轮询地(workLoop中)监控，只要不要null就会启动fiber任务。
 }
@@ -64,25 +64,27 @@ function performUnitOfWork(currentFiber) { // 执行每个fiber任务，也是�
 
 function completeUnitOfWork(currentFiber) { // 按照后续遍历的顺序遍历fiber收集effect(副作用)，构建(不存在更新，每次都要重新构建)出一个effect单链表。
     const returnFiber = currentFiber.return;
-    if (returnFiber) { // 存在父级fiber才开始构建
-        if (!returnFiber.firstEffect) { // 说明currentFiber是returnFiber第一个儿子，不过因为是后序遍历所以优先处理currentFiber儿子的副作用
-            returnFiber.firstEffect = currentFiber.firstEffect;
-        }
-        if (currentFiber.lastEffect) { // 说明currentFiber的儿子确实有副作用——lastEffect存在则firstEffect一定存在。因为lastEffect总是要指向最后一个有效的effect上，所以这里需要进行判断。
-            if (returnFiber.lastEffect) { // 说明currentFiber不是returnFiber第一个儿子，所以它儿子们的副作用要排到后面去
-                returnFiber.lastEffect.nextEffect = currentFiber.firstEffect;
-            }
-            returnFiber.lastEffect = currentFiber.lastEffect; // 将lastEffect指向正确的位置——指向currentFiber最后一个子/孙fiber的副作用
-        }
-        if (currentFiber.effectTag) { // currentFiber自己有副作用则在儿子的副作用之后处理
-            if (returnFiber.lastEffect) { // 说明currentFiber不是第一个儿子，所以它的副作用要排在后面
-                returnFiber.lastEffect.nextEffect = currentFiber; // 副作用仍然是fiber节点
-            } else {
-                returnFiber.firstEffect = currentFiber; // 说明currentFiber是第一个儿子。
-            }
-            returnFiber.lastEffect = currentFiber; // 将lastEffect指向正确的位置
-        }
+    if(!returnFiber) { // 不存在父级fiber则退出构建
+        return
     }
+    if (!returnFiber.firstEffect) { // 说明currentFiber是returnFiber第一个儿子，不过因为是后序遍历所以优先处理currentFiber儿子(前提是存在儿子)的副作用
+        returnFiber.firstEffect = currentFiber.firstEffect;
+    }
+    if (currentFiber.lastEffect) { // 说明currentFiber的儿子确实有副作用——lastEffect存在则firstEffect一定存在。因为lastEffect总是要指向最后一个有效的effect上，所以这里需要进行判断。
+        if (returnFiber.lastEffect) { // 说明currentFiber不是returnFiber第一个儿子，所以它儿子们的副作用要排到后面去
+            returnFiber.lastEffect.nextEffect = currentFiber.firstEffect;
+        }
+        returnFiber.lastEffect = currentFiber.lastEffect; // 将lastEffect指向正确的位置——指向currentFiber最后一个子/孙fiber的副作用
+    }
+    if (currentFiber.effectTag) { // currentFiber自己有副作用则在儿子的副作用之后处理
+        if (returnFiber.lastEffect) { // 说明currentFiber不是第一个儿子，所以它的副作用要排在后面
+            returnFiber.lastEffect.nextEffect = currentFiber; // 副作用仍然是fiber节点
+        } else {
+            returnFiber.firstEffect = currentFiber; // 执行到这里说明上面74行的if语句没有执行，所以currentFiber没有儿子(没有lastEffect则肯定也没有firstEffect)，所以currentFiber既是returnFiber第一个儿子，也是returnFiber最后一个儿子。
+        }
+        returnFiber.lastEffect = currentFiber; // 将lastEffect指向正确的位置
+    }
+    
 }
 // beginWork对应reconcile阶段
 function beginWork(currentFiber) {
@@ -165,94 +167,97 @@ function getOldFiberMap(oldFiber) { // 生成旧子Fiber的map，key到fiber的�
 }
 
 function reconcileChildren(currentFiber, newChildren) { // 遍历子React元素数组来构建/更新子fiber
+    if(!newChildren.length) {
+        return;
+    }
     const {
         updaters, // updaters(和类组件实例或hook对应)保存当前fiber关联的所有updater
     } = currentFiber;
-    let oldFiber = currentFiber.alternate && currentFiber.alternate.child; // 尝试获取旧的第一个子fiber
-    oldFiber && (oldFiber.firstEffect = oldFiber.lastEffect = oldFiber.nextEffect = null); // 重置副作用
+    const oldChild = currentFiber.alternate && currentFiber.alternate.child; // 尝试获取旧的第一个子fiber
+    oldChild && (oldChild.firstEffect = oldChild.lastEffect = oldChild.nextEffect = null); // 重置副作用
     let prevSibling; // 表示上一个兄弟fiber
-    let newFiber; // 表示当前的生成/更新的子fiber
+    let newChild; // 表示当前的生成/更新的子fiber
     currentFiber.child = null; // 清除之前的子fiber(对非初次渲染)
-    const oldFiberMap = getOldFiberMap(oldFiber); // 获取key到旧子fiber的映射表
+    const oldChildMap = getOldFiberMap(oldChild); // 获取key到旧子fiber的映射表
     let newChildIndex = 0; // 遍历的索引
-    let lastIndex = 0; // 比对新旧子fiber时当前不需要移动的子DOM节点的最近一个索引
+    let lastIndex = 0; // 比对新旧子fiber时当前不需要移动最近一个的子DOM节点的索引
     while (newChildIndex < newChildren.length) { // 遍历children
         let tag;
-        const newChild = newChildren[newChildIndex]; // 当前遍历的子节点
-        updaters && injectListener(updaters, newChild.props); // 劫持事件监听器，让其可以批量延迟更新state。
-        const newKey = (newChild && newChild.key) || newChildIndex.toString(); // 优先使用React元素上的key prop，非React元素或不含key prop则使用数字索引
-        let foundFiber = oldFiberMap[newKey] || {}; // 查找可复用的旧子fiber
-        if (foundFiber.type !== newChild.type) { // 类型不同不会复用
-            foundFiber = null;
+        const newChildElement = newChildren[newChildIndex]; // 当前遍历的子节点
+        updaters && injectListener(updaters, newChildElement.props); // 劫持事件监听器，让其可以批量延迟更新state。
+        const newKey = (newChildElement && newChildElement.key) || newChildIndex.toString(); // 优先使用React元素上的key prop，非React元素或不含key prop则使用数字索引
+        let reusableChild = oldChildMap[newKey] || {}; // 查找可复用的旧子fiber
+        if (reusableChild.type !== newChildElement.type) { // 类型不同不会复用
+            reusableChild = null;
         }
-        if (newChild && newChild.$$typeof === TEXT) { // 确定tag(fiber)类型
+        if (newChildElement && newChildElement.$$typeof === TEXT) { // 确定tag(fiber)类型
             tag = TAG_TEXT;
-        } else if (newChild && newChild.$$typeof === REACT_ELEMENT) {
+        } else if (newChildElement && newChildElement.$$typeof === REACT_ELEMENT) {
             tag = TAG_HOST;
-        } else if (newChild && newChild.$$typeof === CLASS_COMPONENT) {
+        } else if (newChildElement && newChildElement.$$typeof === CLASS_COMPONENT) {
             tag = TAG_CLASS;
-        } else if (newChild && newChild.$$typeof === FUNCTION_COMPONENT) {
+        } else if (newChildElement && newChildElement.$$typeof === FUNCTION_COMPONENT) {
             tag = TAG_FUNCTION;
         }
-        if (foundFiber) {
-            if (foundFiber.alternate) { // 第三次以之后的渲染才能在可复用的fiber的alternate上找到缓存的fiber
-                newFiber = foundFiber.alternate; // 复用缓存的fiber
-                newFiber.props = newChild.props; // 更新props
+        if (reusableChild) {
+            if (reusableChild.alternate) { // 第三次以之后的渲染才能在可复用的fiber的alternate上找到缓存的fiber
+                newChild = reusableChild.alternate; // 复用缓存的fiber
+                newChild.props = newChildElement.props; // 更新props
                 // alternate还是指向上一个fiber，这样foundFiber和它的alternate fiber各自的alternate指向彼此
-                newFiber.alternate = foundFiber; // 保存当前缓存的fiber
-                newFiber.effectTag = UPDATE; // 副作用类型为更新(包含移动)
-                newFiber.nextEffect = null; // 重置下一个副作用
+                newChild.alternate = reusableChild; // 保存当前缓存的fiber
+                newChild.effectTag = UPDATE; // 副作用类型为更新(包含移动)
+                newChild.nextEffect = null; // 重置下一个副作用
             } else { // 第二次渲染才找得到可复用的fiber
-                newFiber = { // 第二次渲染也需要生成一个复制的fiber(作为该fiber的第二个缓存)
-                    tag: foundFiber.tag,
-                    type: foundFiber.type,
-                    key: foundFiber.key,
-                    props: newChild.props, // 更新props
-                    stateNode: foundFiber.stateNode,
+                newChild = { // 第二次渲染也需要生成一个复制的fiber(作为该fiber的第二个缓存)
+                    tag: reusableChild.tag,
+                    type: reusableChild.type,
+                    key: reusableChild.key,
+                    stateNode: reusableChild.stateNode,
+                    updater: reusableChild.updater,
+                    updaters: reusableChild.updaters,
+                    props: newChildElement.props, // 更新props
                     return: currentFiber, // 父级fiber
-                    alternate: foundFiber, // 新fiber alternate指向老fiber
+                    alternate: reusableChild, // 新fiber alternate指向老fiber
                     effectTag: UPDATE, // 副作用类型为更新
                     nextEffect: null, // 重置下一个副作用
                 };
-                foundFiber.updater && (newFiber.updater = foundFiber.updater); // 复用updater
-                foundFiber.updaters && (newFiber.updaters = foundFiber.updaters); // 复用updaters
             }
-            if (foundFiber._mountIndex < lastIndex) { // 小于表示需要移动，添加toIndex
-                newFiber.toIndex = newChildIndex;
+            if (reusableChild._mountIndex < lastIndex) { // 小于表示需要移动，添加toIndex
+                newChild.toIndex = newChildIndex;
             } else { // 大于或等于表示不需要移动，此时更新lastIndex, 并删除toIndex避免之前toIndex影响而插入到错误的位置
-                lastIndex = foundFiber._mountIndex;
-                newFiber.hasOwnProperty('toIndex') && delete newFiber.toIndex;
+                lastIndex = reusableChild._mountIndex;
+                newChild.hasOwnProperty('toIndex') && delete newChild.toIndex;
             }
-        } else if (newChild) { // 首次渲染，则找不到可复用的，或对应位置旧fiber被删除
-            newFiber = {
+        } else if (newChildElement) { // 首次渲染，则找不到可复用的，或对应位置旧fiber被删除
+            newChild = {
                 tag,
-                type: newChild.type,
-                key: newChild.key,
-                props: newChild.props,
+                type: newChildElement.type,
+                key: newChildElement.key,
+                props: newChildElement.props,
                 stateNode: null,
                 toIndex: newChildIndex,
                 return: currentFiber,
                 effectTag: PLACEMENT, // 副作用类型为新增
                 nextEffect: null, //下一个副作用
             };
-            updaters && (newFiber.updaters = updaters.slice()); // 父级fiber存在updaters则将其传递给当前子fiber
+            updaters && (newChild.updaters = updaters.slice()); // 父级fiber存在updaters则将其传递给当前子fiber
         }
-        delete oldFiberMap[newKey]; // 删除映射表中被复用的fiber
-        if (newFiber) {
+        delete oldChildMap[newKey]; // 删除映射表中被复用的fiber
+        if (newChild) {
             if (!currentFiber.child)
-                currentFiber.child = newFiber; // 保存child——第一个子fiber
+                currentFiber.child = newChild; // 保存child——第一个子fiber
             else {
-                prevSibling.sibling = newFiber; // 不是第一个子fiber则作为上一个子fiber的兄弟fiber保存
+                prevSibling.sibling = newChild; // 不是第一个子fiber则作为上一个子fiber的兄弟fiber保存
             }
-            prevSibling = newFiber; // prevSibling保存当前子fiber，作为下一个子fiber的兄弟fiber
-            newFiber._mountIndex = newChildIndex; // 最后始终要更新_mountIndex，_mountIndex用于diff比对时使用
+            prevSibling = newChild; // prevSibling保存当前子fiber，作为下一个子fiber的兄弟fiber
+            newChild._mountIndex = newChildIndex; // 最后始终要更新_mountIndex，_mountIndex用于diff比对时使用
         }
         ++newChildIndex;
     }
     prevSibling.sibling && delete prevSibling.sibling; // 删除复用的最后一个旧Fiber(foundFiber)的sibling节点，否则下次通过getOldFiberMap获取的旧fiber map将失真。
-    for (const key in oldFiberMap) { // 未被复用的fiber的effectTag(副作用类型)都设置为DELETE(删除对应的dom节点)
-        oldFiberMap[key].effectTag = DELETE;
-        deletions.push(oldFiberMap[key]);
+    for (const key in oldChildMap) { // 未被复用的fiber的effectTag(副作用类型)都设置为DELETE(删除对应的dom节点)
+        oldChildMap[key].effectTag = DELETE;
+        deletions.push(oldChildMap[key]);
     }
 }
 // 循环执行工作 nextUnitOfWork
@@ -292,7 +297,7 @@ function commitWork(currentFiber) {
     const returnDOM = returnFiber.stateNode;
     if (currentFiber.tag === TAG_CLASS ||
         currentFiber.tag === TAG_FUNCTION) { // commitWork用于处理DOM副作用，如果当前是组件fiber，则不处理
-        if(currentFiber.effectTag === DELETE){ // 通过删除子节点来删除组件fiber对应的React元素
+        if(currentFiber.effectTag === DELETE){ // 通过删除子节点(组件元素只有一个子节点)来删除组件fiber对应的React元素
             currentFiber.lastEffect.effectTag = DELETE;
             commitWork(currentFiber.lastEffect);
         }
@@ -307,7 +312,7 @@ function commitWork(currentFiber) {
         props, // 新的props
     } = currentFiber;
     if (effectTag === PLACEMENT) {
-        stateNode && returnDOM.appendChild(stateNode);
+        returnDOM.appendChild(stateNode);
     } else if (effectTag === DELETE) {
         returnDOM.removeChild(stateNode);
     } else if (effectTag === UPDATE) {
@@ -319,31 +324,29 @@ function commitWork(currentFiber) {
         }
         if (toIndex) { // 存在toIndex表示需要移动
             returnDOM.removeChild(stateNode); // 先删除
-            insertChildAt(returnDOM, stateNode, toIndex); // 再插入到新位置
+            returnDOM.insertBefore(stateNode, returnDOM.children[toIndex]); // 再插入到新位置
+            
         }
     }
     currentFiber.effectTag = null;
-}
-
-function insertChildAt(parentNode, childDOM, toIndex) {
-    const oldChild = parentNode.children[toIndex]; // 先取出这个位置旧的DOM节点
-    oldChild ? parentNode.insertBefore(childDOM, oldChild) : parentNode.appendChild(childDOM);
 }
 
 export function useReducer(reducer, initialValue) {
     let nextHook, nextUpdater; // 分别表示当前hook、当前hook对应的updater
     const {
         alternate, // 缓存的旧的fiber
-        updaters, // 保存父级fiber的updater
+        updaters,
     } = workInProgressFunction;
-    alternate && ({ // 存在缓存则从缓存中基于hookIndex取出对应的hook和updater
-        hooks: {
-            [hookIndex]: nextHook
-        },
-        hookUpdaters: {
-            [hookIndex]: nextUpdater,
-        }
-    } = alternate);
+    if(alternate) { // 存在缓存则从缓存中基于hookIndex取出对应的hook和updater
+        ({
+            hooks: {
+                [hookIndex]: nextHook
+            },
+            hookUpdaters: {
+                [hookIndex]: nextUpdater,
+            }
+        } = alternate)
+    }
     if (!nextHook) { // 不存在则进行初始化
         nextHook = {
             state: initialValue,
